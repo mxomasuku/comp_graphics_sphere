@@ -7,7 +7,9 @@ public static class Program
     public static void Main(string[] args)
     {
         // Optional: `--screenshot out.png` renders ~3 seconds, saves a frame and exits.
-        //           `--rays single|fan|burst` picks the starting ray mode.
+        //           `--rays single|fan|burst` picks the diagram's ray mode (and shows it).
+        //           `--haze off|light|medium|thick` sets how hazy the air is.
+        //           `--at 2.7` starts the motion that many seconds in.
         string? Option(string name)
         {
             int i = Array.IndexOf(args, name);
@@ -26,7 +28,10 @@ public static class Program
 
         using (var scene = new SphereScene())
         {
-            if (rayMode is { } mode) scene.RayMode = mode;
+            if (rayMode is { } mode) { scene.RayMode = mode; scene.ShowDiagram = true; }
+            if (Option("--haze") is { } haze) scene.Haze = haze;
+            if (float.TryParse(Option("--at"), System.Globalization.CultureInfo.InvariantCulture, out float at))
+                scene.Simulate(at);
             int frame = 0;
             var timer = new System.Diagnostics.Stopwatch();
             while (!Raylib.WindowShouldClose()) // Esc or window close button

@@ -1,11 +1,14 @@
 # Reflective Sphere (C#)
 
-A 3D mirror-polished sphere that moves in x, y and z (bouncing inside a box), spins on its own
-tilted axis, and reflects a glowing point light (a warm bulb) and its surroundings. A live diagram
-shows the **law of reflection** on the sphere: the incident ray, the surface normal, the reflected
-ray, and the angles of incidence and reflection, which stay equal however you move things.
+A 3D mirror ball that moves in x, y and z (bouncing inside a box) and spins on its own tilted
+axis. A stage spotlight shines on it from an angle you choose, and the reflection is
+**simulated as real light**: every flat mirror tile reflects a beam of the spotlight at the mirror
+angle (angle of reflection = angle of incidence). The beams are visible in hazy air and land as
+spots of light on the floor, sweeping around as the ball spins.
 
 Built with .NET 8 and [Raylib-cs](https://github.com/ChrisDill/Raylib-cs) (OpenGL 3.3+).
+
+![Simulated reflection](screenshot-simulation.png)
 
 ## Run
 
@@ -13,83 +16,85 @@ Built with .NET 8 and [Raylib-cs](https://github.com/ChrisDill/Raylib-cs) (OpenG
 dotnet run
 ```
 
+Options: `--haze off|light|medium|thick`, `--rays single|fan|burst` (shows the angle diagram),
+`--at 2.7` (start the motion that many seconds in), `--screenshot out.png`.
+
 ## Controls
 
-| Key            | Action                                   |
-|----------------|------------------------------------------|
-| Left / Right   | Rotate light azimuth (around Y axis)     |
-| Up / Down      | Raise / lower light elevation            |
-| W / S          | Move the light closer / further          |
-| + / -          | Shininess (tighter / broader highlight)  |
-| [ / ]          | Spin speed                               |
-| Mouse drag     | Orbit camera                             |
-| Mouse wheel    | Zoom                                     |
-| M              | Ray mode: fan / 3D burst / single ray    |
-| Z / X          | Fewer / more rays in the fan             |
-| Q / E          | Move the highlighted ray's hit point     |
-| V              | Show / hide the reflection diagram       |
-| B              | Toggle bloom                             |
-| Space          | Pause                                    |
-| R              | Reset motion                             |
-| Esc            | Quit                                     |
+| Key            | Action                                        |
+|----------------|-----------------------------------------------|
+| Left / Right   | Move the spotlight around (azimuth)           |
+| Up / Down      | Raise / lower the spotlight (elevation)       |
+| W / S          | Move the spotlight closer / further           |
+| H              | Haze: off / light / medium / thick            |
+| + / -          | Shininess (tighter / broader glints)          |
+| [ / ]          | Spin speed                                    |
+| V              | Show / hide the lines-and-angles diagram      |
+| M              | Diagram rays: fan / 3D burst / single         |
+| Z / X          | Fewer / more diagram rays                     |
+| Q / E          | Move the diagram's highlighted ray            |
+| Mouse drag     | Orbit camera                                  |
+| Mouse wheel    | Zoom                                          |
+| B              | Toggle bloom                                  |
+| Space          | Pause                                         |
+| R              | Reset motion                                  |
+| Esc            | Quit                                          |
 
-## How it works
+## The light simulation
 
-- **Movement** (`SphereScene.Update`): position integrates a 3D velocity; when the sphere touches a
-  wall, that velocity component is flipped.
-- **Self-rotation**: the spin angle advances every frame and is applied about `SpinAxis` through the
-  sphere's centre before translating it (`DrawModelEx` builds `scale * rotate * translate`).
-- **Light**: a point light placed by two angles (azimuth, elevation) and a distance. It is drawn
-  as a hot bulb with an additive glow halo, and its brightness falls off with distance squared.
-  ACES tone mapping keeps bright highlights from clipping.
-- **Reflection** (`Shaders/sphere.frag`): The shader mirrors the incoming light about the surface normal,
-  `R = reflect(-L, N)`, so the angle of reflection equals the angle of incidence. The specular
-  highlight is `pow(max(dot(R, V), 0), shininess)`, added to ambient and Lambert diffuse
-  `max(dot(N, L), 0)`, plus a Fresnel term that makes glancing angles more reflective.
-- **Floor** (`Shaders/floor.frag`): lit by the same bulb, with a soft sphere shadow (penumbra
-  widens with distance, like a real light of finite size) and contact darkening under the sphere.
+**The mirror ball** (`FacetBall.cs`) is about 400 flat mirror tiles in rows, fewer near the
+poles so each is roughly square, with a round tile capping each pole. Tiles are silver or gold
+and glued very slightly unevenly, like a real ball. A smooth mirror sphere spreads reflected light
+evenly in all directions, so no individual rays can be seen; flat tiles each send out a narrow
+beam, which is what makes the reflected rays visible.
+
+**The lamp** is a spotlight aimed at the ball, with a cone just wider than the ball, plus a
+dim fill light so the room isn't black. Light falls off with distance squared.
+
+**Reflected beams** (`LightSimulation.cs`), every frame, for every tile:
+
+1. Find the light arriving: the spotlight's intensity towards the tile ÷ distance², times the
+   tile's area × cos(angle of incidence).
+2. Reflect it: `R = L − 2 (L·N) N` about the tile's normal, scaled by the mirror's reflectance
+   (gold reflects less blue).
+3. Spread it: the beam widens at the angle the lamp's lens subtends from the tile.
+4. Follow it to the floor.
+
+**What you see:**
+
+- **Beams in the haze.** A beam's brightness is haze density × beam irradiance × the width of
+  beam the eye looks through, so beams are brightest near the ball and dim as they widen. The haze
+  scatters slightly forwards (Henyey-Greenstein), so beams heading towards the camera look
+  brighter.
+- **Spots on the floor.** Each beam's power is spread over its footprint (an ellipse when it
+  arrives at a slant) and painted into a floor light map. The floor shader lights the tiles with
+  it like any other light (dark grout stays dark), and the ball's own reflection of the floor
+  shows the spots too.
+- **The spotlight's beam** (`Shaders/haze.frag`) is light scattered by the haze, integrated
+  along each view ray with equiangular sampling. The ball's shadow runs through it. It is computed
+  at half resolution (haze is smooth) and blended over the image.
+- **The ball itself** (`Shaders/sphere.frag`). Each tile mirrors the view ray and traces it into
+  the scene: the lamp's lens, the lit floor with its spots, the glowing haze. A tile flashes when
+  it lines up the lamp with your eye.
+
+## The angle diagram (`ReflectionGuide.cs`)
+
+![Angle diagram](screenshot-diagram.png)
+
+Press **V** for a lines-and-angles overlay. It snaps to the real tiles, so its rays lie exactly on
+simulated beams. At the highlighted tile it shows the incident ray, the normal and the reflected
+ray, with θi and θr measured separately; they always come out equal. **M** switches between one
+ray, a fan across the ball and a 3D burst.
 
 ## Rendering pipeline
 
-1. **Off-screen, supersampled scene** (`PostProcess.cs`): rendered at 1.5-2x the window's pixel
-   size (Retina aware), then filtered down for clean, anti-aliased edges.
-2. **Floor reflection**: the sphere and bulb are drawn mirrored below the floor, lit from the
-   mirrored light and seen from the mirrored camera. The floor is then drawn partly transparent,
-   more so at glancing angles (Fresnel) and never in the grout.
-3. **Surface detail** (`Shaders/common.glsl`): procedural noise and tangent-free bump mapping
-   give the sphere recessed seams, a painted texture and a clear coat, and give the floor
-   bevelled marble tiles.
-4. **Bloom**: bright areas are extracted, blurred at two sizes and screen-blended back, followed
-   by a light vignette and dithering to prevent banding.
+1. **Floor light map**: the beams' landing spots, painted from above.
+2. **Scene, supersampled** (`PostProcess.cs`): the studio backdrop, then the mirror image below the
+   floor (ball, lamp and beams, shaded from a mirrored camera), then the polished floor (partly
+   transparent where it reflects), the ball, the lamp and the beams.
+3. **Haze glow** at half resolution, lightly blurred.
+4. **Bloom**, vignette and dithering, then the HUD.
 
-Start in a given ray mode with `dotnet run -- --rays burst` (or `fan`, `single`).
-
-| Fan of rays | 3D burst |
-|---|---|
-| ![Fan](screenshot-fan.png) | ![Burst](screenshot-burst.png) |
-
-## The reflection diagram (`ReflectionGuide.cs`)
-
-Rays leave the bulb, hit the sphere and reflect, with pulses of light travelling along them:
-
-- **Fan**: rays spread across the face of the ball in one plane facing the camera. Because the
-  surface is curved, each hits a differently angled patch, so the reflections fan out.
-- **3D burst**: the centre plus rings of rays over the whole lit hemisphere.
-- **Single**: just the highlighted ray.
-
-The highlighted ray (moved with Q/E) hits a point chosen so the plane of incidence faces the
-camera (so the angles are seen undistorted). At that point:
-
-- **N** is the surface normal (for a sphere, the direction from the centre to the point).
-- The **incident ray** arrives from the bulb at angle θi to the normal.
-- The **reflected ray** is `R = reflect(-L, N) = -L + 2 (L·N) N`, and leaves at angle θr.
-- θi and θr are measured separately and always come out equal, which is the law of reflection.
-  The reflected ray is traced to where it lands on the floor.
-
-The shader uses the same law for the sphere's mirror finish: every pixel reflects the view
-ray about the normal and traces it into the scene (bulb, floor, studio) to find what it sees.
-
-## Performance
-
-Supersampling adapts to the machine: it starts at 2x (1.25x on Retina) and steps down towards
-native resolution if the frame rate stays under 55 fps. The HUD shows the current `render` scale.
+Resolution adapts to the machine: it starts at 2x supersampling (1.25x on Retina) and steps down,
+to native (or 0.75x on Retina), if the frame rate stays under 55 fps. The HUD shows the current
+`render` scale.

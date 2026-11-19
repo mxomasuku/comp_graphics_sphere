@@ -61,7 +61,10 @@ public sealed class ReflectionGuide
 
     public void Advance(float dt) => _clock += dt;
 
-    public void Update(Vector3 center, float radius, Vector3 lightPos, float lightRadius, Vector3 cameraPos, float floorY)
+    /// <param name="snapToTile">Maps an ideal surface direction to the real tile there
+    /// (its centre and flat normal), so the diagram follows the mirror ball's actual tiles.</param>
+    public void Update(Vector3 center, float radius, Vector3 lightPos, float lightRadius, Vector3 cameraPos, float floorY,
+                       Func<Vector3, (Vector3 Center, Vector3 Normal)>? snapToTile = null)
     {
         Vector3 l = Vector3.Normalize(lightPos - center);
         Vector3 v = Vector3.Normalize(cameraPos - center);
@@ -81,7 +84,9 @@ public sealed class ReflectionGuide
             float a = offsetDeg * Raylib.DEG2RAD, s = spinDeg * Raylib.DEG2RAD;
             Vector3 side = MathF.Cos(s) * w + MathF.Sin(s) * planeNormal;
             Vector3 normal = Vector3.Normalize(MathF.Cos(a) * l + MathF.Sin(a) * side);
-            return Trace(center + radius * normal, normal, lightPos, lightRadius, floorY);
+            Vector3 hit = center + radius * normal;
+            if (snapToTile is not null) (hit, normal) = snapToTile(normal);
+            return Trace(hit, normal, lightPos, lightRadius, floorY);
         }
 
         Current = RayAt(HitOffsetDeg, 0f);

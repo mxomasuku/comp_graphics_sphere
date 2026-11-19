@@ -8,6 +8,7 @@ in vec4 fragColor;
 uniform sampler2D texture0;     // supersampled scene
 uniform sampler2D bloomNear;    // tight glow
 uniform sampler2D bloomFar;     // wide glow
+uniform sampler2D haze;         // light scattered by haze in the air (lower resolution)
 uniform vec2 outTexel;          // 1 / output size, in texture coordinates
 uniform float bloomStrength;
 uniform float time;
@@ -25,7 +26,8 @@ void main()
                    + texture(texture0, uv + vec2(-o.x,  o.y)).rgb
                    + texture(texture0, uv + vec2( o.x,  o.y)).rgb);
 
-    // Screen-blend the glow so it brightens without clipping to flat white.
+    // Haze glow, then bloom, both screen-blended so they brighten without clipping.
+    c = 1.0 - (1.0 - c) * (1.0 - texture(haze, uv).rgb);
     vec3 bloom = (texture(bloomNear, uv).rgb * 0.9 + texture(bloomFar, uv).rgb * 0.8) * bloomStrength;
     c = 1.0 - (1.0 - c) * (1.0 - clamp(bloom, 0.0, 1.0));
 

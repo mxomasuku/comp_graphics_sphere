@@ -11,10 +11,11 @@ public sealed class PostProcess : IDisposable
 {
     private readonly Shader _bright, _blur, _composite;
     private readonly int _locTexel, _locThreshold, _locDirection;
-    private readonly int _locBloomNear, _locBloomFar, _locOutTexel, _locBloomStrength, _locTime;
+    private readonly int _locBloomNear, _locBloomFar, _locOutTexel, _locBloomStrength, _locTime, _locHaze;
 
     // Scene at supersampled size; bloom at 1/4 (near) and 1/16 (far) of that.
     private RenderTexture2D _scene, _half, _near, _nearTmp, _far, _farTmp;
+    private RenderTexture2D _haze, _hazeTmp; // haze glow at half the window's resolution
     private int _renderWidth, _renderHeight;
     private float _supersample;
 
@@ -41,6 +42,7 @@ public sealed class PostProcess : IDisposable
         _locOutTexel = Raylib.GetShaderLocation(_composite, "outTexel");
         _locBloomStrength = Raylib.GetShaderLocation(_composite, "bloomStrength");
         _locTime = Raylib.GetShaderLocation(_composite, "time");
+        _locHaze = Raylib.GetShaderLocation(_composite, "haze");
     }
 
     public int SceneWidth => _scene.Texture.Width;
@@ -65,15 +67,38 @@ public sealed class PostProcess : IDisposable
         _nearTmp = CreateTarget(sw / 4, sh / 4);
         _far = CreateTarget(sw / 16, sh / 16);
         _farTmp = CreateTarget(sw / 16, sh / 16);
+        _haze = CreateTarget(w / 2, h / 2);
+        _hazeTmp = CreateTarget(w / 2, h / 2);
+    }
+
+    public int HazeWidth => _haze.Texture.Width;
+    public int HazeHeight => _haze.Texture.Height;
+
+    /// <summary>Renders the haze glow with the given full-screen shader (or clears it).</summary>
+    public void RenderHaze(Shader? shader)
+    {
+        Raylib.BeginTextureMode(_haze);
+        Raylib.ClearBackground(Color.Black);
+        if (shader is { } s)
+        {
+            Raylib.BeginShaderMode(s);
+            Raylib.DrawRectangle(0, 0, _haze.Texture.Width, _haze.Texture.Height, Color.White);
+            Raylib.EndShaderMode();
+        }
+        Raylib.EndTextureMode();
+        // A light blur smooths out the per-pixel sampling noise.
+        if (shader is not null) Blur(_haze, _hazeTmp, 1);
     }
 
     /// <summary>
     /// Call once per frame with the frame time. If the average stays below 55 fps for two
-    /// seconds, step supersampling down (never below native resolution, never back up).
+    /// seconds, step supersampling down (never back up). The floor is native resolution,
+    /// or 0.75x on Retina screens, whose pixels are small enough not to notice.
     /// </summary>
     public void TrackFrameTime(float dt)
     {
-        if (Supersample <= 1f) return;
+        float floor = _renderWidth >= 2000 ? 0.75f : 1f;
+        if (Supersample <= floor) return;
         _sampleTime += dt;
         _sampleFrames++;
         if (_sampleTime < 0.5) return;
@@ -84,7 +109,7 @@ public sealed class PostProcess : IDisposable
         _sampleFrames = 0;
         if (_slowTime >= 2.0)
         {
-            Supersample = MathF.Max(1f, Supersample - (Supersample > 1.5f ? 0.5f : 0.25f));
+            Supersample = MathF.Max(floor, Supersample - (Supersample > 1.5f ? 0.5f : 0.25f));
             _slowTime = 0.0;
         }
     }
@@ -128,6 +153,7 @@ public sealed class PostProcess : IDisposable
         Raylib.BeginShaderMode(_composite);
         Raylib.SetShaderValueTexture(_composite, _locBloomNear, _near.Texture);
         Raylib.SetShaderValueTexture(_composite, _locBloomFar, _far.Texture);
+        Raylib.SetShaderValueTexture(_composite, _locHaze, _haze.Texture);
         DrawFlipped(_scene, new Rectangle(0, 0, screenW, screenH));
         Raylib.EndShaderMode();
     }
@@ -166,7 +192,7 @@ public sealed class PostProcess : IDisposable
 
     private void UnloadTargets()
     {
-        foreach (var rt in new[] { _scene, _half, _near, _nearTmp, _far, _farTmp })
+        foreach (var rt in new[] { _scene, _half, _near, _nearTmp, _far, _farTmp, _haze, _hazeTmp })
             if (rt.Id != 0) Raylib.UnloadRenderTexture(rt);
     }
 

@@ -5,7 +5,8 @@ namespace ReflectiveSphere;
 
 public readonly record struct HudState(
     float AzimuthDeg, float ElevationDeg, float LightDistance, float Shininess,
-    float SpinDeg, bool Paused, bool Bloom, float Supersample, ReflectionGuide.Geometry? Reflection,
+    float SpinDeg, bool Paused, bool Bloom, float Supersample, string Haze, int Beams,
+    ReflectionGuide.Geometry? Reflection,
     RayMode? Rays, int RayCount);
 
 /// <summary>On-screen readouts and control hints, drawn on top of the finished image.</summary>
@@ -52,7 +53,7 @@ public sealed class Hud : IDisposable
         }
 
         // Readout panel
-        var panel = new Rectangle(16, 16, 300, s.Rays is null ? 168 : s.Reflection is null ? 239 : 285);
+        var panel = new Rectangle(16, 16, 300, s.Rays is null ? 214 : s.Reflection is null ? 285 : 331);
         Raylib.DrawRectangleRounded(panel, 0.06f, 8, Panel);
         Text(_bold, "REFLECTIVE SPHERE", 32, 28, 17, Accent);
 
@@ -62,6 +63,8 @@ public sealed class Hud : IDisposable
         Row("Light distance", $"{s.LightDistance:0.0}", ref y);
         Row("Shininess", $"{s.Shininess:0}", ref y);
         Row("Spin", $"{s.SpinDeg:0}°/s", ref y);
+        Row("Haze", s.Haze, ref y);
+        Row("Reflected beams", $"{s.Beams}", ref y, ReflectionGuide.ReflectedColor);
 
         if (s.Rays is { } mode)
         {
@@ -91,8 +94,8 @@ public sealed class Hud : IDisposable
         var controls = new[]
         {
             ("Arrows", "light angle"), ("W/S", "light distance"), ("+/-", "shininess"), ("[ ]", "spin"),
-            ("M", "ray mode"), ("Z/X", "fewer/more rays"), ("Q/E", "hit point"), ("V", "diagram"),
-            ("Drag", "orbit"), ("Wheel", "zoom"), ("B", "bloom"), ("Space", "pause"), ("R", "reset"),
+            ("V", "angle diagram"), ("M", "diagram rays"), ("Z/X", "fewer/more"), ("Q/E", "hit point"),
+            ("H", "haze"), ("Drag", "orbit"), ("Wheel", "zoom"), ("B", "bloom"), ("Space", "pause"), ("R", "reset"),
         };
         const float rowHeight = 30f, gap = 18f;
         float ItemWidth(string key, string action) =>
