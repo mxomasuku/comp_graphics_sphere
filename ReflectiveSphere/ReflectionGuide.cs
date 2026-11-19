@@ -36,7 +36,7 @@ public sealed class ReflectionGuide
     public int FanCount { get; private set; } = 9;
 
     /// <summary>Where the highlighted ray hits, in degrees away from the point facing
-    /// the light. This is also (almost exactly) its angle of incidence.</summary>
+    /// the light. The actual incidence angle also depends on the distance to the bulb.</summary>
     public float HitOffsetDeg { get; set; } = 35f;
 
     /// <summary>The highlighted ray, or null when the light can't reach its hit point.</summary>
@@ -61,21 +61,31 @@ public sealed class ReflectionGuide
 
     public void Advance(float dt) => _clock += dt;
 
-    public void Update(Vector3 center, float radius, Vector3 lightPos, float lightRadius, Vector3 cameraPos, float floorY)
+    public void Update(Vector3 center, float radius, Vector3 lightPos, float lightRadius, float floorY)
     {
-        Vector3 l = Vector3.Normalize(lightPos - center);
-        Vector3 v = Vector3.Normalize(cameraPos - center);
+        _bundle.Clear();
+        Current = null;
+        float lightDistance = Vector3.Distance(lightPos, center);
+        if (radius <= 0f || lightDistance <= radius + lightRadius) return;
 
-        // Put the plane of incidence face-on to the camera, so the angles are seen undistorted.
-        Vector3 planeNormal = v - Vector3.Dot(v, l) * l;
-        if (planeNormal.LengthSquared() < 1e-6f)
-            planeNormal = Vector3.Cross(l, MathF.Abs(l.Y) < 0.9f ? Vector3.UnitY : Vector3.UnitX);
-        planeNormal = Vector3.Normalize(planeNormal);
-        Vector3 w = Vector3.Normalize(Vector3.Cross(planeNormal, l));
-        if (w.Y > 0f) w = -w; // tilt towards the floor so the reflected ray lands somewhere visible
+        Vector3 l = (lightPos - center) / lightDistance;
+        // A world-space plane: moving the camera must never move the light paths.
+        // Project world down onto the tangent plane so the fan follows the light
+        // and sphere, rather than the viewing direction or the sphere's spin.
+        Vector3 w = -Vector3.UnitY + l.Y * l;
+        if (w.LengthSquared() < 1e-6f)
+            w = Vector3.UnitX - l.X * l;
+        w = Vector3.Normalize(w);
+        Vector3 planeNormal = Vector3.Normalize(Vector3.Cross(l, w));
+
+        // A nearby point light illuminates less than a hemisphere. Stay slightly
+        // inside its tangent boundary so every sampled ray hits the near surface.
+        float litOffset = MathF.Min(MaxOffsetDeg,
+            MathF.Acos(radius / lightDistance) * Raylib.RAD2DEG - 1f);
+        litOffset = MathF.Max(0f, litOffset);
 
         // A hit point described by how far it is from the lit centre (offset) and in
-        // which direction around it (spin; 0 = within the plane facing the camera).
+        // which direction around it (spin; 0 = within the world-space fan plane).
         Geometry? RayAt(float offsetDeg, float spinDeg)
         {
             float a = offsetDeg * Raylib.DEG2RAD, s = spinDeg * Raylib.DEG2RAD;
@@ -84,7 +94,7 @@ public sealed class ReflectionGuide
             return Trace(center + radius * normal, normal, lightPos, lightRadius, floorY);
         }
 
-        Current = RayAt(HitOffsetDeg, 0f);
+        Current = RayAt(Math.Clamp(HitOffsetDeg, 0f, litOffset), 0f);
 
         _bundle.Clear();
         switch (Mode)
@@ -93,7 +103,7 @@ public sealed class ReflectionGuide
                 // Evenly spread across the lit face, from one edge to the other.
                 for (int i = 0; i < FanCount; i++)
                 {
-                    float offset = -MaxOffsetDeg + 2f * MaxOffsetDeg * i / (FanCount - 1);
+                    float offset = -litOffset + 2f * litOffset * i / (FanCount - 1);
                     if (RayAt(offset, 0f) is { } g) _bundle.Add(g);
                 }
                 break;
@@ -106,7 +116,7 @@ public sealed class ReflectionGuide
                     int count = offset < 30f ? 6 : 10;
                     float twist = offset * 0.7f; // stagger the rings so rays don't line up
                     for (int k = 0; k < count; k++)
-                        if (RayAt(offset, twist + 360f * k / count) is { } g) _bundle.Add(g);
+                        if (RayAt(offset / MaxOffsetDeg * litOffset, twist + 360f * k / count) is { } g) _bundle.Add(g);
                 }
                 break;
         }
@@ -126,13 +136,13 @@ public sealed class ReflectionGuide
         float incidence = MathF.Acos(Math.Clamp(cosI, -1f, 1f)) * Raylib.RAD2DEG;
         float reflection = MathF.Acos(Math.Clamp(Vector3.Dot(reflected, normal), -1f, 1f)) * Raylib.RAD2DEG;
 
-        Vector3 start = lightPos - toLight * lightRadius * 1.3f;
+        Vector3 start = lightPos - toLight * lightRadius;
         bool lands = false;
         Vector3 end = hit + reflected * FreeRayLength;
         if (reflected.Y < -1e-3f)
         {
             float t = (floorY - hit.Y) / reflected.Y;
-            if (t < 10f) { end = hit + reflected * t; lands = true; }
+            if (t > 0f && t <= FreeRayLength) { end = hit + reflected * t; lands = true; }
         }
 
         return new Geometry(hit, normal, toLight, reflected, start, end, lands, incidence, reflection);
@@ -143,16 +153,14 @@ public sealed class ReflectionGuide
     {
         if (!Visible) return;
 
-        // Faint "x-ray" pass so rays stay readable where they pass behind the sphere,
-        // then the normal depth-tested pass on top.
+        // Keep normal occlusion: rays behind the sphere or floor must be hidden.
+        // Translucent lines should not write depth and cut holes in other rays.
         Rlgl.DrawRenderBatchActive();
-        Rlgl.DisableDepthTest();
-        DrawAll(0.25f);
-        Rlgl.DrawRenderBatchActive();
-        Rlgl.EnableDepthTest();
+        Rlgl.DisableDepthMask();
         DrawAll(1f);
         DrawPulses();
         Rlgl.DrawRenderBatchActive();
+        Rlgl.EnableDepthMask();
     }
 
     private void DrawAll(float opacity)

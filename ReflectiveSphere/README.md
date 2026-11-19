@@ -72,13 +72,15 @@ Start in a given ray mode with `dotnet run -- --rays burst` (or `fan`, `single`)
 
 Rays leave the bulb, hit the sphere and reflect, with pulses of light travelling along them:
 
-- **Fan**: rays spread across the face of the ball in one plane facing the camera. Because the
+- **Fan**: rays spread across the face of the ball in a world-space plane through the bulb and sphere. Because the
   surface is curved, each hits a differently angled patch, so the reflections fan out.
 - **3D burst**: the centre plus rings of rays over the whole lit hemisphere.
 - **Single**: just the highlighted ray.
 
-The highlighted ray (moved with Q/E) hits a point chosen so the plane of incidence faces the
-camera (so the angles are seen undistorted). At that point:
+The highlighted ray (moved with Q/E) stays on the illuminated surface. The fan is independent
+of camera orbit and sphere spin; its illuminated extent adjusts to the distance to the bulb.
+Rays are hidden by the sphere and floor, and outgoing rays fade out or stop at the floor
+within the displayed ray length. At the highlighted hit point:
 
 - **N** is the surface normal (for a sphere, the direction from the centre to the point).
 - The **incident ray** arrives from the bulb at angle θi to the normal.

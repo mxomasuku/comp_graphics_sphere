@@ -263,7 +263,7 @@ public sealed class SphereScene : IDisposable
             SetUniform(shader, "sphereCenter", _position);
         }
         SetUniform(_sphereShader, "shininess", _shininess);
-        _guide.Update(_position, SphereRadius, lightPos, LightRadius, camera.Position, FloorY);
+        _guide.Update(_position, SphereRadius, lightPos, LightRadius, FloorY);
 
         // 1. Reflection: the scene mirrored below the floor. The sphere shader un-mirrors
         //    each point and shades it as seen from a mirrored camera.
